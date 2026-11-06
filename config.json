@@ -1,0 +1,33 @@
+{
+  "title": "Shopfloor Hausen ↔ Berlin",
+  "client_id": "ba713a41-0be4-470a-a28f-72c8f6a43247",
+  "tenant_id": "57b4ccab-4f93-4081-aef2-b9fdcf97139b",
+  "authority_base": "https://login.microsoftonline.com",
+  "graph_base": "https://graph.microsoft.com/v1.0",
+  "scopes": [
+    "Files.ReadWrite.All"
+  ],
+  "redirect_uri": "",
+  "shopfloor_share_link": "https://yourehabag.sharepoint.com/:x:/s/Sprintex/IQCV536hA0JsRZ9nvgbFY0hJAV6bCu74gflRlprz-Kylwh8?e=QgIQzK",
+  "stock": {
+    "share_link": "https://yourehabag.sharepoint.com/:x:/s/Sprintex/IQCuseTC92ghQoOWDlQJvzl-AVfMpsY49abjJsH3R3NgZCU?e=5CUbmF",
+    "sheet_name": "Lagerübersicht Pi",
+    "header_row": 1,
+    "id_column": "S-Nr.:",
+    "name_column": "Artikelbezeichnung",
+    "qty_column": "Bestand",
+    "min_column": "Mindestbestand",
+    "unit_column": "Einheit"
+  },
+  "refresh_seconds": 60,
+  "meeting_step_minutes": 2,
+  "kpi_targets": {
+    "otd_min": 0.95,
+    "qty_min": 0.98,
+    "qs_min": 0.98,
+    "with_order_min": 1.0,
+    "qs_open_max": 0,
+    "overdue_max": 0,
+    "problems_open_max": 5
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "orders": {
+    "table": "tblBestellungen",
+    "sheet": "Bestellungen",
+    "columns": [
+      ["bestellnr", "BestellNr", "text"],
+      ["pos", "Pos", "num"],
+      ["snr", "S-Nr", "text"],
+      ["artikel", "Artikel", "text"],
+      ["menge", "Menge", "num"],
+      ["einheit", "Einheit", "text"],
+      ["wunschtermin", "Wunschtermin", "date"],
+      ["bestaetigt", "Bestätigter Termin", "date"],
+      ["express", "Express", "jn"],
+      ["abgeschlossen", "Abgeschlossen", "jn"],
+      ["erstellt_von", "Erstellt von", "text"],
+      ["erstellt_am", "Erstellt am", "date"],
+      ["bemerkung", "Bemerkung", "text"]
+    ]
+  },
+  "shipments": {
+    "table": "tblLieferungen",
+    "sheet": "Lieferungen",
+    "columns": [
+      ["lieferid", "LieferID", "text"],
+      ["richtung", "Richtung", "text"],
+      ["bestellnr", "BestellNr", "text"],
+      ["pos", "Pos", "num"],
+      ["artikel", "Artikel", "text"],
+      ["versanddatum", "Versanddatum", "date"],
+      ["menge_versendet", "Menge versendet", "num"],
+      ["express", "Express", "jn"],
+      ["tracking", "Paket/Tracking", "text"],
+      ["versendet_von", "Versendet von", "text"],
+      ["eingangsdatum", "Eingangsdatum", "date"],
+      ["menge_erhalten", "Menge erhalten", "num"],
+      ["qs_ergebnis", "QS-Ergebnis", "text"],
+      ["menge_io", "Menge i.O.", "num"],
+      ["qs_von", "QS geprüft von", "text"],
+      ["qs_bemerkung", "QS-Bemerkung", "text"],
+      ["bemerkung", "Bemerkung", "text"]
+    ]
+  },
+  "problems": {
+    "table": "tblProbleme",
+    "sheet": "Probleme",
+    "columns": [
+      ["nr", "Nr", "num"],
+      ["datum", "Datum", "date"],
+      ["kategorie", "Kategorie", "text"],
+      ["bezug", "Bezug", "text"],
+      ["problem", "Problem", "text"],
+      ["verantwortlich", "Verantwortlich", "text"],
+      ["standort", "Standort", "text"],
+      ["dringlichkeit", "Dringlichkeit", "text"],
+      ["massnahme", "Maßnahme", "text"],
+      ["termin", "Termin", "date"],
+      ["status", "Status", "text"],
+      ["erledigt_am", "Erledigt am", "date"]
+    ]
+  },
+  "meetings": {
+    "table": "tblMeetings",
+    "sheet": "Meetings",
+    "columns": [
+      ["datum", "Datum", "date"],
+      ["uhrzeit", "Uhrzeit", "text"],
+      ["teilnehmer", "Teilnehmer", "text"],
+      ["dauer", "Dauer (min)", "num"],
+      ["kpi_otd", "Liefertreue", "text"],
+      ["kpi_menge", "Mengentreue", "text"],
+      ["kpi_qs", "QS-Quote", "text"],
+      ["kpi_bezug", "Mit Bestellbezug", "text"],
+      ["kpi_qs_offen", "Eingänge ohne QS", "num"],
+      ["kpi_ueberfaellig", "Überfällige Positionen", "num"],
+      ["kpi_probleme", "Offene Probleme", "num"],
+      ["notizen", "Notizen", "text"],
+      ["erstellt_von", "Erstellt von", "text"]
+    ]
+  },
+  "lists": {
+    "richtung": ["Berlin → Hausen", "Hausen → Berlin"],
+    "qs_ergebnis": ["i.O.", "teilweise", "n.i.O."],
+    "kategorie": ["Menge", "Qualität", "Termin", "Doku/Bezug", "Sonstiges"],
+    "standort": ["Hausen", "Berlin", "beide"],
+    "dringlichkeit": ["hoch", "mittel", "niedrig"],
+    "status": ["offen", "in Arbeit", "erledigt"],
+    "jn": ["J", "N"]
+  }
+}

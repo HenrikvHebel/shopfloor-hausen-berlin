@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>app.js Integrationstest</title></head>
+<body>
+<pre id="testout" style="display:none"></pre>
+<script>
+/*
+ * Runs the real index.html + logic.js + app.js against an in-memory mock of Microsoft Graph (Excel tables).
+ * Serve the project root over HTTP (python -m http.server 8099) and open /tests/app.test.html.
+ * All data is invented test data.
+ */
+var LOG = [], FAILS = 0;
+function check(name, cond, extra) { if (!cond) FAILS++; LOG.push((cond ? "PASS " : "FAIL ") + name + (cond || extra === undefined ? "" : "  -> " + extra)); }
+window.addEventListener("error", function (e) { FAILS++; LOG.push("FAIL window error: " + e.message); });
+window.confirm = function () { return true; };
+
+var realFetch = window.fetch.bind(window);
+var SHOP = "https://example.invalid/shopfloor.xlsx", STOCK = "https://example.invalid/lager.xlsx";
+var CONFIG = {
+  title: "Shopfloor TEST", client_id: "00000000-0000-0000-0000-000000000000", tenant_id: "00000000-0000-0000-0000-000000000001",
+  authority_base: "https://login.example.invalid", graph_base: "https://graph.example.invalid/v1.0", scopes: ["Files.ReadWrite.All"],
+  redirect_uri: "", shopfloor_share_link: SHOP,
+  stock: { share_link: STOCK, sheet_name: "Lagerübersicht Pi", header_row: 1, id_column: "S-Nr.:", name_column: "Artikelbezeichnung",
+           qty_column: "Bestand", min_column: "Mindestbestand", unit_column: "Einheit" },
+  refresh_seconds: 60, meeting_step_minutes: 2,
+  kpi_targets: { otd_min: 0.95, qty_min: 0.98, qs_min: 0.98, with_order_min: 1, qs_open_max: 0, overdue_max: 0, problems_open_max: 5 }
+};
+var TABLES = {}, STOCKVALS = [
+  ["S-Nr.:", "Artikelbezeichnung", "Bestand", "Mindestbestand", "Gruppe", "Einheit", "Verwendet in"],
+  [1001, "Rahmenrohr Test", 12, 20, "Mechanik", "Stk", ""],
+  [1002, "Motorkabel Test 2m", 0, 5, "Elektronik", "Stk", ""],
+  ["", "", "", "", "", "", ""]
+];
+var CALLS = [];
+
+/* Excel-like conversion of written values (worst case: ISO dates -> serials, digit strings -> numbers) */
+function excelIn(v) {
+  if (typeof v !== "string") return v;
+  if (v.charAt(0) === "'") return v.slice(1);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return (Date.parse(v + "T00:00:00Z") - Date.UTC(1899, 11, 30)) / 86400000;
+  if (/^-?\d+(\.\d+)?$/.test(v)) return parseFloat(v);
+  return v;
+}
+function colL(n) { var s = ""; n += 1; while (n) { var r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+function json(obj, status) { return Promise.resolve(new Response(JSON.stringify(obj), { status: status || 200, headers: { "Content-Type": "application/json" } })); }
+function decodeShare(id) { var b = id.slice(2).replace(/-/g, "+").replace(/_/g, "/"); while (b.length % 4) b += "="; return decodeURIComponent(escape(atob(b))); }
+
+function mockGraph(method, url, body) {
+  var path = decodeURIComponent(url.replace(CONFIG.graph_base, "")), m;
+  CALLS.push(method + " " + path);
+  if ((m = /^\/shares\/([^/]+)\/driveItem$/.exec(path))) {
+    var link = decodeShare(m[1]);
+    return json({ id: link === STOCK ? "stockitem" : "shopitem", parentReference: { driveId: "drive1" } });
+  }
+  if (path.indexOf("/drives/drive1/items/stockitem/workbook/worksheets('Lagerübersicht Pi')/usedRange(valuesOnly=true)") === 0) {
+    return json({ address: "'Lagerübersicht Pi'!A1:G" + STOCKVALS.length, values: STOCKVALS });
+  }
+  if ((m = /^\/drives\/drive1\/items\/shopitem\/workbook\/tables\('([^']+)'\)\/range$/.exec(path)) && method === "GET") {
+    var t = TABLES[m[1]];
+    return json({ address: t.sheet + "!A1:" + colL(t.header.length - 1) + (t.rows.length + 1), values: [t.header].concat(t.rows) });
+  }
+  if ((m = /^\/drives\/drive1\/items\/shopitem\/workbook\/tables\('([^']+)'\)\/rows\/add$/.exec(path)) && method === "POST") {
+    var t2 = TABLES[m[1]];
+    body.values.forEach(function (r) {
+      if (r.length !== t2.header.length) throw new Error("rows/add width mismatch");
+      t2.rows.push(r.map(excelIn));
+    });
+    return json({ index: t2.rows.length - 1 });
+  }
+  if ((m = /^\/drives\/drive1\/items\/shopitem\/workbook\/worksheets\('([^']+)'\)\/range\(address='([A-Z]+)(\d+):([A-Z]+)(\d+)'\)$/.exec(path)) && method === "PATCH") {
+    var tbl = null;
+    Object.keys(TABLES).forEach(function (k) { if (TABLES[k].sheet === m[1]) tbl = TABLES[k]; });
+    var ri = parseInt(m[3], 10) - 2;
+    if (!tbl || m[3] !== m[5] || m[2] !== "A" || ri < 0 || ri >= tbl.rows.length) return json({ error: "bad patch " + path }, 400);
+    if (body.values[0].length !== tbl.header.length) return json({ error: "width" }, 400);
+    tbl.rows[ri] = body.values[0].map(excelIn);
+    return json({});
+  }
+  return json({ error: { message: "mock: unknown " + method + " " + path } }, 404);
+}
+
+window.fetch = function (url, opt) {
+  url = String(url); opt = opt || {};
+  if (/(^|\/)config\.json$/.test(url)) return json(CONFIG);
+  if (/(^|\/)schema\.json$/.test(url)) return realFetch("../schema.json", { cache: "no-store" });
+  if (url.indexOf(CONFIG.graph_base) === 0) {
+    try { return mockGraph(opt.method || "GET", url, opt.body ? JSON.parse(opt.body) : null); }
+    catch (e) { return json({ error: e.message }, 500); }
+  }
+  return realFetch(url, opt);
+};
+
+/* MSAL stub: already signed in */
+window.msal = {
+  InteractionRequiredAuthError: function () {},
+  PublicClientApplication: function () {
+    var acc = { name: "Test Hausen", username: "test@example.invalid" };
+    this.handleRedirectPromise = function () { return Promise.resolve(null); };
+    this.getAllAccounts = function () { return [acc]; };
+    this.setActiveAccount = function () {};
+    this.acquireTokenSilent = function () { return Promise.resolve({ accessToken: "test-token" }); };
+    this.loginRedirect = this.logoutRedirect = this.acquireTokenRedirect = function () {};
+  }
+};
+
+/* ---------- helpers for the scenario ---------- */
+function $(id) { return document.getElementById(id); }
+function q(sel) { return document.querySelector(sel); }
+function qa(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function waitFor(fn, what, ms) {
+  var t0 = Date.now();
+  return new Promise(function (res, rej) {
+    (function poll() {
+      var v; try { v = fn(); } catch (e) { v = null; }
+      if (v) return res(v);
+      if (Date.now() - t0 > (ms || 5000)) return rej(new Error("timeout: " + what));
+      setTimeout(poll, 30);
+    })();
+  });
+}
+function idle() { return waitFor(function () { return $("busy").style.display === "none"; }, "idle").then(function () { return sleep(80); }); }
+function setv(el, v) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); }
+function click(el) { el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); }
+function submit(form) { form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); }
+function go(h) { location.hash = h; return sleep(120); }
+function toastText() { return $("toast").style.display === "block" ? $("toast").textContent : ""; }
+function col(tname, key) {
+  var t = TABLES[tname]; var hdr = null;
+  SCHEMA[t.key].columns.forEach(function (c) { if (c[0] === key) hdr = c[1]; });
+  return t.header.indexOf(hdr);
+}
+function dataRows(tname) { return TABLES[tname].rows.filter(function (r) { return r.some(function (v) { return v !== ""; }); }); }
+function cell(tname, row, key) { return row[col(tname, key)]; }
+var SCHEMA;
+
+/* ---------- boot: build tables from schema, inject index.html body, load scripts ---------- */
+function loadScript(src) { return new Promise(function (res, rej) { var s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.body.appendChild(s); }); }
+
+realFetch("../schema.json").then(function (r) { return r.json(); }).then(function (sc) {
+  SCHEMA = sc;
+  ["orders", "shipments", "problems", "meetings"].forEach(function (k) {
+    var t = sc[k];
+    TABLES[t.table] = { key: k, sheet: t.sheet, header: t.columns.map(function (c) { return c[1]; }),
+                        rows: [t.columns.map(function () { return ""; })] };   // template has one blank row
+  });
+  return realFetch("../index.html");
+}).then(function (r) { return r.text(); }).then(function (html) {
+  var doc = new DOMParser().parseFromString(html, "text/html");
+  document.head.appendChild(doc.querySelector("style"));
+  Array.prototype.slice.call(doc.body.children).forEach(function (n) { if (n.tagName !== "SCRIPT") document.body.appendChild(n); });
+  return loadScript("../logic.js");
+}).then(function () { return loadScript("../app.js"); }).then(scenario)["catch"](function (e) { FAILS++; LOG.push("FAIL boot/scenario: " + e.message); }).then(finish);
+
+function today() { return window.SFL.isoOf(new Date()); }
+
+function scenario() {
+  var T = today(), past = SFL.addDays(T, -5), BH = SFL.DIR_BH, lid1, lid2;
+  return waitFor(function () { return /Stand/.test($("info").textContent); }, "first load").then(idle).then(function () {
+    check("meeting view shown first", /Shopfloor-Meeting/.test($("view").textContent));
+    check("7 KPI tiles", qa(".kpi").length === 7, qa(".kpi").length);
+    check("info shows user", /Test Hausen/.test($("info").textContent));
+    check("no stock error", !/Lagerliste Hausen nicht lesbar/.test($("view").textContent), $("view").textContent.slice(0, 200));
+
+    /* 1. new order with two lines */
+    return go("#bestellungen");
+  }).then(function () {
+    click(q('[data-act="newOrder"]'));
+    var f = q('#modal form');
+    setv(f.querySelector("[name=bestellnr]"), "4711");
+    setv(f.querySelector("[name=wunschtermin]"), past);
+    setv(f.querySelector("[name=ol_snr]"), "1001");
+    check("artikel autofilled from stock", f.querySelector("[name=ol_artikel]").value === "Rahmenrohr Test", f.querySelector("[name=ol_artikel]").value);
+    setv(f.querySelector("[name=ol_menge]"), "10");
+    click(q('[data-act="addLine"]'));
+    var sn = f.querySelectorAll("[name=ol_snr]"), mg = f.querySelectorAll("[name=ol_menge]");
+    setv(sn[1], "1002"); setv(mg[1], "4");
+    submit(f);
+    return idle();
+  }).then(function () {
+    var rows = dataRows("tblBestellungen");
+    check("2 order rows written", rows.length === 2, rows.length);
+    check("order pos 1/2", cell("tblBestellungen", rows[0], "pos") === 1 && cell("tblBestellungen", rows[1], "pos") === 2);
+    check("order einheit from stock", cell("tblBestellungen", rows[0], "einheit") === "Stk");
+    check("order express N", cell("tblBestellungen", rows[0], "express") === "N");
+    check("order list shows overdue", /Überfällig/.test($("view").textContent));
+    check("stock shown with min", /12 Stk \(Min 20\)/.test($("view").textContent), $("view").textContent.slice(0, 400));
+
+    /* 1b. duplicate BestellNr appends positions */
+    click(q('[data-act="newOrder"]'));
+    var f = q('#modal form');
+    setv(f.querySelector("[name=bestellnr]"), "4711");
+    setv(f.querySelector("[name=wunschtermin]"), SFL.addDays(T, 10));
+    setv(f.querySelector("[name=ol_artikel]"), "Sonderteil Test");
+    setv(f.querySelector("[name=ol_menge]"), "1");
+    submit(f);
+    return idle();
+  }).then(function () {
+    var rows = dataRows("tblBestellungen");
+    check("appended as pos 3", rows.length === 3 && cell("tblBestellungen", rows[2], "pos") === 3);
+
+    /* 1c. validation: order without lines */
+    click(q('[data-act="newOrder"]'));
+    var f = q('#modal form');
+    setv(f.querySelector("[name=bestellnr]"), "4712");
+    setv(f.querySelector("[name=wunschtermin]"), T);
+    submit(f);
+    return sleep(150);
+  }).then(function () {
+    check("validation: needs a line", /Mindestens eine Position/.test(toastText()), toastText());
+    check("nothing written", dataRows("tblBestellungen").length === 3);
+    click(q('#modal [data-act="close"]'));
+
+    /* 2. Berlin ships line 4711/1 */
+    return go("#versand");
+  }).then(function () {
+    var f = q('form[data-form="ship"]');
+    setv(f.querySelector("[name=line]"), "4711|1");
+    setv(f.querySelector("[name=menge]"), "6");
+    setv(f.querySelector("[name=tracking]"), "DHL-TEST-1");
+    submit(f);
+    return idle();
+  }).then(function () {
+    var rows = dataRows("tblLieferungen");
+    lid1 = "L-" + T.replace(/-/g, "") + "-01";
+    check("shipment row written", rows.length === 1, rows.length);
+    check("lieferid generated", cell("tblLieferungen", rows[0], "lieferid") === lid1, cell("tblLieferungen", rows[0], "lieferid"));
+    check("shipment linked to order", String(cell("tblLieferungen", rows[0], "bestellnr")) === "4711" && cell("tblLieferungen", rows[0], "pos") === 1);
+    check("shipped by user", cell("tblLieferungen", rows[0], "versendet_von") === "Test Hausen");
+    check("big ID modal", q("#modal .bigid") && q("#modal .bigid").textContent === lid1);
+    click(q('#modal [data-act="close"]'));
+
+    /* 2b. shipment without order: reason required */
+    var f = q('form[data-form="ship"]');
+    setv(f.querySelector("[name=line]"), "-");
+    check("free fields visible for no-order", f.querySelector("[data-dir=free]").style.display === "");
+    setv(f.querySelector("[name=artikel]"), "Kabel lose Test");
+    setv(f.querySelector("[name=menge]"), "2");
+    click(f.querySelector('[data-act="express"]') || f.querySelector("[name=express]"));
+    submit(f);
+    return sleep(150);
+  }).then(function () {
+    check("no-order needs reason", /Grund/.test(toastText()), toastText());
+    var f = q('form[data-form="ship"]');
+    setv(f.querySelector("[name=bemerkung]"), "Express-Nachlieferung Test");
+    submit(f);
+    return idle();
+  }).then(function () {
+    var rows = dataRows("tblLieferungen");
+    lid2 = "L-" + T.replace(/-/g, "") + "-02";
+    check("2nd shipment id", rows.length === 2 && cell("tblLieferungen", rows[1], "lieferid") === lid2);
+    check("2nd shipment express J", cell("tblLieferungen", rows[1], "express") === "J");
+    click(q('#modal [data-act="close"]'));
+
+    /* 3. Hausen receives lid1: 5 counted, QS teilweise, 4 ok -> problem card */
+    return go("#eingang");
+  }).then(function () {
+    check("2 packages expected", qa('#view [data-act="receive"]').length === 2, qa('#view [data-act="receive"]').length);
+    click(q('#view [data-act="receive"][data-id="' + lid1 + '"]'));
+    var f = q('#modal form');
+    check("received qty prefilled", f.querySelector("[name=menge_erhalten]").value === "6");
+    setv(f.querySelector("[name=menge_erhalten]"), "5");
+    click(f.querySelector('[data-act="seg"][data-val="teilweise"]'));
+    submit(f);
+    return sleep(150);
+  }).then(function () {
+    check("teilweise needs Menge i.O.", /Menge i\.O\./.test(toastText()), toastText());
+    var f = q('#modal form');
+    setv(f.querySelector("[name=menge_io]"), "4");
+    setv(f.querySelector("[name=qs_bemerkung]"), "1 Teil verkratzt (Test)");
+    submit(f);
+    return idle().then(function () { return waitFor(function () { return q('#modal form[data-form="problem"]'); }, "problem modal"); });
+  }).then(function () {
+    var rows = dataRows("tblLieferungen"), r = rows[0];
+    check("receipt date stored", SFL.normDate(cell("tblLieferungen", r, "eingangsdatum")) === T);
+    check("receipt qty", cell("tblLieferungen", r, "menge_erhalten") === 5 && cell("tblLieferungen", r, "menge_io") === 4);
+    check("QS result + checker", cell("tblLieferungen", r, "qs_ergebnis") === "teilweise" && cell("tblLieferungen", r, "qs_von") === "Test Hausen");
+    check("other columns kept on update", cell("tblLieferungen", r, "tracking") === "DHL-TEST-1");
+    var f = q('#modal form');
+    check("problem prefilled", f.querySelector("[name=bezug]").value === "Lieferung " + lid1 && f.querySelector("[name=kategorie]").value === "Qualität");
+    setv(f.querySelector("[name=problem]"), "Kratzer an Rahmenrohr (Test)");
+    setv(f.querySelector("[name=verantwortlich]"), "Versand Berlin (Test)");
+    submit(f);
+    return idle();
+  }).then(function () {
+    var p = dataRows("tblProbleme");
+    check("problem #1 written", p.length === 1 && cell("tblProbleme", p[0], "nr") === 1 && cell("tblProbleme", p[0], "status") === "offen");
+
+    /* 3b. package that arrived without any shipping notice, linked to order 4711/2 */
+    click(q('[data-act="receiveNew"]'));
+    var f = q('#modal form');
+    setv(f.querySelector("[name=line]"), "4711|2");
+    setv(f.querySelector("[name=menge_erhalten]"), "4");
+    click(f.querySelector('[data-act="seg"][data-val="i.O."]'));
+    check("Menge i.O. autofilled", f.querySelector("[name=menge_io]").value === "4");
+    submit(f);
+    return idle();
+  }).then(function () {
+    var rows = dataRows("tblLieferungen");
+    check("receiveNew row", rows.length === 3 && String(cell("tblLieferungen", rows[2], "bestellnr")) === "4711" && cell("tblLieferungen", rows[2], "pos") === 2);
+    check("receiveNew id", cell("tblLieferungen", rows[2], "lieferid") === "L-" + T.replace(/-/g, "") + "-03");
+
+    /* 4. edit order: confirm date */
+    return go("#bestellungen");
+  }).then(function () {
+    click(q('[data-act="editOrder"][data-k="4711|3"]'));
+    var f = q('#modal form');
+    setv(f.querySelector("[name=bestaetigt]"), SFL.addDays(T, 12));
+    submit(f);
+    return idle();
+  }).then(function () {
+    var r = dataRows("tblBestellungen")[2];
+    check("confirmed date stored", SFL.normDate(cell("tblBestellungen", r, "bestaetigt")) === SFL.addDays(T, 12));
+    check("artikel kept on edit", cell("tblBestellungen", r, "artikel") === "Sonderteil Test");
+    check("delivered line hidden in 'offen' filter", !/4711 \/ 2 –/.test($("olist").textContent));
+    setv($("oq"), "rahmen");
+    check("search filters list", qa("#olist .item").length === 1, qa("#olist .item").length);
+    setv($("oq"), "");
+
+    /* 5. meeting run-through */
+    return go("#meeting");
+  }).then(function () {
+    var txt = $("view").textContent;
+    check("KPI Liefertreue red (late)", /Liefertreue/.test(txt) && q(".kpi.bad"));
+    click(q('[data-act="mstep"][data-i="1"]'));
+    txt = $("view").textContent;
+    check("step 2 shows open 4711/1 overdue", /4711 \/ 1/.test(txt) && /Überfällig/.test(txt));
+    check("step 2 hides delivered 4711/2", !/4711 \/ 2 –/.test(txt));
+    click(q('[data-act="mstep"][data-i="2"]'));
+    check("step 3 shows in-transit lid2", new RegExp(lid2).test($("view").textContent));
+    click(q('[data-act="mstep"][data-i="3"]'));
+    txt = $("view").textContent;
+    check("step 4 shows receipts with checker", new RegExp(lid1).test(txt) && /Test Hausen/.test(txt));
+    click(q('[data-act="mstep"][data-i="4"]'));
+    check("step 5 shows problem", /Kratzer an Rahmenrohr/.test($("view").textContent));
+    click(q('[data-act="probStatus"][data-s="in Arbeit"]'));
+    return idle();
+  }).then(function () {
+    check("problem status in Arbeit", cell("tblProbleme", dataRows("tblProbleme")[0], "status") === "in Arbeit");
+    click(q('[data-act="mstep"][data-i="5"]'));
+    var f = q('form[data-form="saveMeeting"]');
+    setv(f.querySelector("[name=teilnehmer]"), "Test Hausen, Test Berlin");
+    setv(f.querySelector("[name=notizen]"), "Berlin bestätigt Termin für 4711/1 (Test)");
+    submit(f);
+    return idle();
+  }).then(function () {
+    var m = dataRows("tblMeetings");
+    check("meeting row written", m.length === 1);
+    check("meeting KPI snapshot", m.length && cell("tblMeetings", m[0], "kpi_ueberfaellig") === 1 && /%|–/.test(String(cell("tblMeetings", m[0], "kpi_qs"))),
+      m.length ? JSON.stringify(m[0]) : "");
+    check("meeting resets to step 1", /1\/6 Kennzahlen/.test($("view").textContent));
+
+    /* 6. problem done */
+    return go("#probleme");
+  }).then(function () {
+    click(q('[data-act="probStatus"][data-s="erledigt"]'));
+    return idle();
+  }).then(function () {
+    var p = dataRows("tblProbleme")[0];
+    check("problem erledigt + date", cell("tblProbleme", p, "status") === "erledigt" && SFL.normDate(cell("tblProbleme", p, "erledigt_am")) === T);
+    check("open filter now empty", /Keine Problemkarten/.test($("view").textContent));
+  });
+}
+
+function finish() {
+  LOG.push(FAILS ? "RESULT: " + FAILS + " FAILED" : "RESULT: ALL PASSED (" + LOG.length + ")");
+  var o = $("testout"); o.textContent = LOG.join("\n"); o.style.display = "block";
+  document.body.insertBefore(o, document.body.firstChild);
+  /* for screenshots: ?show=<view>&step=<n> navigates there after the run and hides the log */
+  var show = /[?&]show=(\w+)/.exec(location.search), step = /[?&]step=(\d)/.exec(location.search);
+  if (show) {
+    o.style.display = "none";
+    location.hash = "#" + show[1];
+    setTimeout(function () {
+      if (step) click(q('[data-act="mstep"][data-i="' + step[1] + '"]'));
+      if (/[?&]modal=ship/.test(location.search)) click(q('#view [data-act="receive"]'));
+      document.title = "DONE";
+    }, 200);
+  } else document.title = "DONE";
+}
+</script>
+</body>
+</html>

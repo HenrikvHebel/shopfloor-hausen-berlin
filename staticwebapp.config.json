@@ -1,0 +1,14 @@
+{
+  "routes": [
+    { "route": "/tests/*", "statusCode": 404 },
+    { "route": "/tools/*", "statusCode": 404 },
+    { "route": "/*.xlsx", "statusCode": 404 },
+    { "route": "/README.md", "statusCode": 404 }
+  ],
+  "globalHeaders": {
+    "Cache-Control": "no-cache",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin"
+  }
+}

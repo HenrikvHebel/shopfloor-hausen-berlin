@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>logic.js Tests</title></head>
+<body>
+<pre id="out">läuft…</pre>
+<script src="../logic.js"></script>
+<script>
+/* Invented test data only. */
+var S = window.SFL, res = [], fails = 0;
+function eq(name, got, exp) {
+  var ok = JSON.stringify(got) === JSON.stringify(exp);
+  if (!ok) fails++;
+  res.push((ok ? "PASS " : "FAIL ") + name + (ok ? "" : "  got=" + JSON.stringify(got) + " exp=" + JSON.stringify(exp)));
+}
+try {
+  var BH = S.DIR_BH, T = "2026-11-06";
+  // dates
+  eq("normDate serial", S.normDate(46332), "2026-11-06");
+  eq("normDate iso", S.normDate("2026-11-06"), "2026-11-06");
+  eq("normDate de", S.normDate("6.11.2026"), "2026-11-06");
+  eq("normDate empty", S.normDate(""), "");
+  eq("normDate text", S.normDate("abc"), "");
+  eq("fmtDate", S.fmtDate("2026-11-06"), "06.11.2026");
+  eq("num comma", S.num("2,5"), 2.5);
+  eq("yes J", S.yes("J"), true);
+  eq("yes N", S.yes("N"), false);
+  eq("lineKey", S.lineKey(4711, "1"), "4711|1");
+
+  var orders = [
+    { bestellnr: "A1", pos: 1, artikel: "Rahmen", menge: 10, wunschtermin: "2026-11-01" },   // overdue, partial
+    { bestellnr: "A1", pos: 2, artikel: "Kabel", menge: 5, wunschtermin: "2026-11-10" },      // in transit
+    { bestellnr: "A2", pos: 1, artikel: "Blech", menge: 4, wunschtermin: "2026-11-03" },      // delivered late, QS nio
+    { bestellnr: "A3", pos: 1, artikel: "Welle", menge: 2, wunschtermin: "2026-11-20", express: "J" }, // open
+    { bestellnr: "A4", pos: 1, artikel: "Achse", menge: 3, wunschtermin: "2026-10-01", abgeschlossen: "J" }, // closed
+    { bestellnr: "A5", pos: 1, artikel: "Platte", menge: 6, wunschtermin: "2026-11-05", bestaetigt: "2026-11-08" } // confirmed later -> not overdue
+  ];
+  var ships = [
+    { lieferid: "L-1", richtung: BH, bestellnr: "A1", pos: 1, menge_versendet: 6, versanddatum: "2026-11-02", eingangsdatum: "2026-11-04", menge_erhalten: 5, qs_ergebnis: "i.O." },
+    { lieferid: "L-2", richtung: BH, bestellnr: "A1", pos: 2, menge_versendet: 5, versanddatum: "2026-11-05" },
+    { lieferid: "L-3", richtung: BH, bestellnr: "A2", pos: 1, menge_versendet: 4, versanddatum: "2026-11-03", eingangsdatum: "2026-11-05", menge_erhalten: 4, qs_ergebnis: "n.i.O.", menge_io: 0 },
+    { lieferid: "L-4", richtung: BH, bestellnr: "", artikel: "Kabel lose", menge_versendet: 2, versanddatum: "2026-11-04", eingangsdatum: "2026-11-05", menge_erhalten: 2 },
+    { lieferid: "L-5", richtung: "Hausen → Berlin", bestellnr: "", artikel: "Muster", menge_versendet: 1, versanddatum: "2026-11-05" }
+  ];
+  var ls = S.deriveLines(orders, ships, T), by = {};
+  ls.forEach(function (l) { by[l.key] = l; });
+
+  eq("A1/1 status", by["A1|1"].status, "Teilgeliefert");
+  eq("A1/1 flags", by["A1|1"].flags, ["Überfällig", "Mengenabweichung"]);
+  eq("A1/1 open", by["A1|1"].open, 5);
+  eq("A1/1 okQty", by["A1|1"].okQty, 5);
+  eq("A1/2 status", by["A1|2"].status, "Unterwegs");
+  eq("A1/2 transit", by["A1|2"].transit, 5);
+  eq("A1/2 flags", by["A1|2"].flags, []);
+  eq("A2/1 status", by["A2|1"].status, "Geliefert");
+  eq("A2/1 flags", by["A2|1"].flags, ["Verspätet", "QS n.i.O."]);
+  eq("A2/1 okQty", by["A2|1"].okQty, 0);
+  eq("A3/1 status", by["A3|1"].status, "Offen");
+  eq("A3/1 flags", by["A3|1"].flags, ["Express"]);
+  eq("A4/1 closed", by["A4|1"].status, "Abgeschlossen");
+  eq("A4/1 not overdue", by["A4|1"].flags, []);
+  eq("A5/1 confirmed date wins", by["A5|1"].due, "2026-11-08");
+  eq("A5/1 not overdue", by["A5|1"].flags, []);
+
+  eq("sort overdue first", S.sortLines(ls)[0].key, "A1|1");
+
+  var probs = [{ nr: 1, problem: "x", status: "offen" }, { nr: 2, problem: "y", status: "erledigt" }, { nr: 3, problem: "z", status: "in Arbeit" }];
+  var ks = S.kpis(ls, ships, probs, "2026-11-01", T, T,
+    { otd_min: 0.95, qty_min: 0.98, qs_min: 0.98, with_order_min: 1, qs_open_max: 0, overdue_max: 0, problems_open_max: 5 });
+  var k = {}; ks.forEach(function (x) { k[x.key] = x; });
+  // received B->H in period: L-1 (A1/1 due 11-01, in 11-04 late), L-3 (A2 due 11-03, in 11-05 late), L-4 (no order)
+  eq("otd value", k.kpi_otd.value, 0);
+  eq("otd red", k.kpi_otd.ok, false);
+  eq("qty value", Math.round(k.kpi_menge.value * 1000) / 1000, 0.667);
+  eq("qs value", k.kpi_qs.value, 0.5);
+  eq("with order", Math.round(k.kpi_bezug.value * 1000) / 1000, 0.667);
+  eq("qs open", k.kpi_qs_offen.value, 1);
+  eq("overdue count", k.kpi_ueberfaellig.value, 1);
+  eq("open problems", k.kpi_probleme.value, 2);
+  eq("open problems green", k.kpi_probleme.ok, true);
+  eq("fmtKpi pct", S.fmtKpi(k.kpi_qs), "50 %");
+  eq("fmtKpi null", S.fmtKpi({ value: null }), "–");
+  var empty = S.kpis([], [], [], "2026-11-01", T, T, { otd_min: 0.95 });
+  eq("no data -> neutral", empty[0].ok, null);
+
+  eq("nextLieferId first", S.nextLieferId([], "2026-11-06"), "L-20261106-01");
+  eq("nextLieferId next", S.nextLieferId([{ lieferid: "L-20261106-01" }, { lieferid: "L-20261106-07" }, { lieferid: "L-20261105-09" }], "2026-11-06"), "L-20261106-08");
+  eq("nextProblemNr", S.nextProblemNr(probs), 4);
+  eq("period default", S.meetingPeriod([], T), { from: "2026-10-30", to: T, last: "" });
+  eq("period last meeting", S.meetingPeriod([{ datum: "2026-11-04" }, { datum: "2026-11-02" }, { datum: T }], T), { from: "2026-11-04", to: T, last: "2026-11-04" });
+} catch (e) { fails++; res.push("FAIL exception " + e.message); }
+res.push(fails ? "RESULT: " + fails + " FAILED" : "RESULT: ALL PASSED (" + res.length + ")");
+document.getElementById("out").textContent = res.join("\n");
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Phone-Vorschau</title>
+<style>body{margin:0;background:#888;display:flex;gap:16px;padding:16px;align-items:flex-start}iframe{width:375px;height:1200px;border:0;background:#fff}</style></head>
+<body>
+<!-- 375 px wide frames (iPhone width) around the mock-backed integration test; for layout checks only -->
+<script>
+var qs = location.search.replace(/^\?/, "").split("|");
+qs.forEach(function (q) {
+  var f = document.createElement("iframe");
+  f.src = "app.test.html?" + q;
+  document.body.appendChild(f);
+});
+</script>
+</body>
+</html>
