@@ -30,9 +30,34 @@ DROPDOWNS = {
     ("problems", "status"): "status",
 }
 
+# lines starting with "## " are written bold (without the marker)
 HELP = [
     "Shopfloor Hausen ↔ Berlin – Datenablage der Web-App",
     "",
+    "## So läuft das Shopfloor-Meeting (ca. 10–15 Minuten, Mo–Fr bzw. jeden 2. Tag)",
+    "",
+    "## Vor dem Meeting – jeder Standort pflegt seine Daten selbst, am besten sofort:",
+    "• Hausen: neue OrgaMax-Bestellungen unter „Bestellungen“ erfassen (BestellNr, Positionen mit S-Nr, Wunschtermin).",
+    "• Berlin: jedes versendete Paket unter „Versand“ melden – auch Express. Die angezeigte LieferID und die BestellNr auf Lieferschein und Paket schreiben.",
+    "• Hausen: jedes eingegangene Paket unter „Wareneingang“ erfassen: gezählte Menge, QS-Ergebnis, Menge i.O., QS geprüft von.",
+    "",
+    "## Im Meeting – ein Moderator, Bildschirm teilen:",
+    "• Der Moderator öffnet die App (Reiter „Meeting“) und teilt den Bildschirm in Teams. Berlin schaut mit und spricht.",
+    "• Nur der Moderator klickt. Die Bildschirme der anderen laufen nicht mit (Schritt und Timer sind je Browser getrennt).",
+    "• Pro Schritt ca. 2 Minuten. Der Schritt-Timer wird rot, wenn die Zeit überschritten ist.",
+    "• Was länger als 2 Minuten Diskussion braucht, wird als Problemkarte („+ Problem“) mit Verantwortlich und Termin erfasst – nicht im Meeting gelöst.",
+    "",
+    "## Die 6 Schritte:",
+    "1. Kennzahlen – rote Kacheln kurz ansprechen (Liefertreue, Mengentreue, QS-Quote, Bestellbezug, Eingänge ohne QS, überfällige Positionen, offene Probleme).",
+    "2. Offene Bestellungen – überfällige stehen oben. Berlin nennt einen Termin → „Termin/Bearbeiten“ → „Bestätigter Termin“ eintragen. Lager Hausen prüfen (gelb = unter Mindestbestand, rot = 0).",
+    "3. Unterwegs – was ist versendet, aber noch nicht angekommen? Express beachten; lange Laufzeiten klären.",
+    "4. Eingänge & QS – Abweichungen besprechen: ohne Bestellbezug, Menge anders als versendet, QS offen oder n.i.O. Bei „QS offen“: wer prüft bis wann?",
+    "5. Probleme – offene Karten nach Dringlichkeit durchgehen, Status setzen („in Arbeit“ / „erledigt“), neue Karten anlegen.",
+    "6. Abschluss – Teilnehmer beider Standorte eintragen, Vereinbarungen notieren und „Meeting speichern“ (nur einmal, nur der Moderator).",
+    "",
+    "Der Kennzahlen-Zeitraum beginnt beim zuletzt gespeicherten Meeting – deshalb jedes Meeting speichern.",
+    "",
+    "## Hinweise zur Datei",
     "Die Web-App liest und schreibt die Tabellen auf den Blättern Bestellungen, Lieferungen, Probleme und Meetings.",
     "Tabellen- und Spaltennamen nicht umbenennen. Zusätzliche Spalten rechts sind erlaubt (die App lässt sie unverändert).",
     "Eine leere Zeile direkt unter der Überschrift ist normal (Excel-Tabellen brauchen mindestens eine Datenzeile).",
@@ -54,7 +79,11 @@ def main():
     info = wb.active
     info.title = "Info"
     for i, line in enumerate(HELP, start=1):
-        info.cell(row=i, column=1, value=line)
+        bold = line.startswith("## ")
+        c = info.cell(row=i, column=1, value=line[3:] if bold else line)
+        c.alignment = Alignment(wrap_text=True, vertical="top")
+        if bold:
+            c.font = Font(bold=True)
     info["A1"].font = Font(bold=True, size=14)
     info.column_dimensions["A"].width = 120
 
