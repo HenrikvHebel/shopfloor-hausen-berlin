@@ -21,6 +21,7 @@
   },
   "refresh_seconds": 60,
   "meeting_step_minutes": 2,
+  "due_soon_days": 3,
   "kpi_targets": {
     "otd_min": 0.95,
     "qty_min": 0.98,

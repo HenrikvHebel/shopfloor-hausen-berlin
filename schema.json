@@ -15,7 +15,8 @@
       ["abgeschlossen", "Abgeschlossen", "jn"],
       ["erstellt_von", "Erstellt von", "text"],
       ["erstellt_am", "Erstellt am", "date"],
-      ["bemerkung", "Bemerkung", "text"]
+      ["bemerkung", "Bemerkung", "text"],
+      ["lbnr", "LB-Nr", "text", "optional"]
     ]
   },
   "shipments": {

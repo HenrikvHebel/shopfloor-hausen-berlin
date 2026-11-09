@@ -49,7 +49,7 @@ HELP = [
     "",
     "## Die 6 Schritte:",
     "1. Kennzahlen – rote Kacheln kurz ansprechen (Liefertreue, Mengentreue, QS-Quote, Bestellbezug, Eingänge ohne QS, überfällige Positionen, offene Probleme).",
-    "2. Offene Bestellungen – überfällige stehen oben. Berlin nennt einen Termin → „Termin/Bearbeiten“ → „Bestätigter Termin“ eintragen. Lager Hausen prüfen (gelb = unter Mindestbestand, rot = 0).",
+    "2. Offene Bestellungen – überfällige stehen oben. Farben: hellrot = in 3 Tagen fällig, kräftig rot = überfällig, gelb = teilgeliefert. Berlin nennt einen Termin → „Termin/Bearbeiten“ → „Bestätigter Termin“ eintragen. Lager Hausen prüfen (gelb = unter Mindestbestand, rot = 0).",
     "3. Unterwegs – was ist versendet, aber noch nicht angekommen? Express beachten; lange Laufzeiten klären.",
     "4. Eingänge & QS – Abweichungen besprechen: ohne Bestellbezug, Menge anders als versendet, QS offen oder n.i.O. Bei „QS offen“: wer prüft bis wann?",
     "5. Probleme – offene Karten nach Dringlichkeit durchgehen, Status setzen („in Arbeit“ / „erledigt“), neue Karten anlegen.",
@@ -62,7 +62,7 @@ HELP = [
     "Tabellen- und Spaltennamen nicht umbenennen. Zusätzliche Spalten rechts sind erlaubt (die App lässt sie unverändert).",
     "Eine leere Zeile direkt unter der Überschrift ist normal (Excel-Tabellen brauchen mindestens eine Datenzeile).",
     "",
-    "Bestellungen: eine Zeile je Bestellposition aus OrgaMax (BestellNr + Pos).",
+    "Bestellungen: eine Zeile je Bestellposition aus OrgaMax (BestellNr + Pos). LB-Nr = Laufbandnummer(n), Format 1234/26, mehrere mit Komma: 1234/26, 1235/26.",
     "Lieferungen: eine Zeile je Paket. Berlin füllt Versand, Hausen füllt Eingang und QS.",
     "Probleme: Problemkarten mit Verantwortlich, Maßnahme, Termin, Status.",
     "Meetings: Protokoll jedes Shopfloor-Meetings mit Kennzahlen.",
@@ -103,7 +103,8 @@ def main():
         t = schema[key]
         ws = wb.create_sheet(t["sheet"])
         cols = t["columns"]
-        for ci, (ckey, header, ctype) in enumerate(cols, start=1):
+        for ci, col in enumerate(cols, start=1):
+            ckey, header, ctype = col[:3]
             c = ws.cell(row=1, column=ci, value=header)
             c.font = Font(bold=True, color="FFFFFF")
             c.fill = head_fill

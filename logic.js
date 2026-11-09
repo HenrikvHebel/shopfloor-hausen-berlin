@@ -70,9 +70,11 @@
   /*
    * Order lines with derived state.
    * status: Abgeschlossen | Geliefert | Unterwegs | Teilgeliefert | Offen
-   * flags:  Überfällig, Verspätet, Mengenabweichung, QS n.i.O., QS offen, Express
+   * flags:  Überfällig, Bald fällig, Verspätet, Mengenabweichung, QS n.i.O., QS offen, Express
+   * soonDays: open lines due within this many days get "Bald fällig" (default 3).
    */
-  function deriveLines(orders, shipments, today) {
+  function deriveLines(orders, shipments, today, soonDays) {
+    var soon = soonDays === undefined || soonDays === null ? 3 : num(soonDays);
     var byKey = {};
     (shipments || []).forEach(function (s) {
       if (!str(s.bestellnr)) return;
@@ -110,13 +112,14 @@
       if (received > ordered) diff = true;
       var flags = [];
       if (!done && due && due < today) flags.push("Überfällig");
+      else if (!done && due && daysBetween(today, due) <= soon) flags.push("Bald fällig");
       if (done && due && lastIn && lastIn > due) flags.push("Verspätet");
       if (diff) flags.push("Mengenabweichung");
       if (qsFail) flags.push("QS n.i.O.");
       if (qsOpen) flags.push("QS offen");
       if (yes(o.express)) flags.push("Express");
       return {
-        key: k, order: o, bestellnr: str(o.bestellnr), pos: num(o.pos), snr: str(o.snr), artikel: str(o.artikel),
+        key: k, order: o, bestellnr: str(o.bestellnr), pos: num(o.pos), snr: str(o.snr), artikel: str(o.artikel), lbnr: str(o.lbnr),
         einheit: str(o.einheit), ordered: ordered, shipped: shipped, received: received, okQty: ok,
         transit: transit, open: Math.max(0, ordered - received), due: due, lastIn: lastIn,
         status: status, done: done, flags: flags, shipments: ss
@@ -136,6 +139,16 @@
       if (a.bestellnr !== b.bestellnr) return a.bestellnr < b.bestellnr ? -1 : 1;
       return a.pos - b.pos;
     });
+  }
+
+  /*
+   * Treadmill numbers (LB-Nr), format 1234/26, several separated by comma/semicolon/space.
+   * Returns { ok, value: "1234/26, 1235/26", bad: [invalid parts] }.
+   */
+  function parseLbNr(v) {
+    var parts = str(v).split(/[\s,;]+/).filter(function (x) { return x; });
+    var bad = parts.filter(function (x) { return !/^\d{4}\/\d{2}$/.test(x); });
+    return { ok: bad.length === 0, value: parts.join(", "), bad: bad };
   }
 
   function ratio(n, d) { return d ? n / d : null; }
@@ -219,7 +232,7 @@
     DIR_BH: DIR_BH, normDate: normDate, fmtDate: fmtDate, isoOf: isoOf, num: num, hasNum: hasNum, yes: yes,
     str: str, lineKey: lineKey, daysBetween: daysBetween, addDays: addDays, isReceived: isReceived,
     okQty: okQty, deriveLines: deriveLines, hasFlag: hasFlag, sortLines: sortLines, kpis: kpis,
-    fmtKpi: fmtKpi, nextLieferId: nextLieferId, nextProblemNr: nextProblemNr, meetingPeriod: meetingPeriod
+    fmtKpi: fmtKpi, parseLbNr: parseLbNr, nextLieferId: nextLieferId, nextProblemNr: nextProblemNr, meetingPeriod: meetingPeriod
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.SFL = api;

@@ -123,6 +123,7 @@
         var colKey = header.map(function () { return null; }), colType = {};
         t.columns.forEach(function (c) {
           var i = header.indexOf(c[1].toLowerCase());
+          if (i < 0 && c[3] === "optional") return;
           if (i < 0) throw new Error("Spalte '" + c[1] + "' fehlt in Tabelle " + t.table);
           colKey[i] = c[0]; colType[c[0]] = c[2];
         });
@@ -145,8 +146,8 @@
     if (type === "num") return S.hasNum(v) ? S.num(v) : "";
     if (type === "jn") return v === true ? "J" : v === false ? "N" : S.str(v);
     var s = S.str(v);
-    /* "'" prefix keeps formulas and leading zeros (e.g. OrgaMax "00123") as text */
-    if (type === "text" && (/^[=+@]/.test(s) || /^0\d+$/.test(s))) s = "'" + s;
+    /* "'" prefix keeps formulas, leading zeros (e.g. OrgaMax "00123") and fraction/date-like text (LB-Nr "1234/26") as text */
+    if (type === "text" && (/^[=+@]/.test(s) || /^0\d+$/.test(s) || /^\d+\/\d+$/.test(s))) s = "'" + s;
     return s;
   }
 
@@ -224,20 +225,22 @@
 
   /* ---------- rendering helpers ---------- */
 
-  function lines() { return S.deriveLines(D.orders, D.shipments, today()); }
+  function lines() { return S.deriveLines(D.orders, D.shipments, today(), CFG.due_soon_days); }
   function lineMap(ls) { var m = {}; ls.forEach(function (l) { m[l.key] = l; }); return m; }
 
-  var FLAG_CLS = { "Überfällig": "bad", "QS n.i.O.": "bad", "Mengenabweichung": "warn", "QS offen": "warn",
+  var FLAG_CLS = { "Überfällig": "bad", "Bald fällig": "bad", "QS n.i.O.": "bad", "Mengenabweichung": "warn", "QS offen": "warn",
                    "Verspätet": "warn", "Express": "info" };
   function chip(text, cls) { return '<span class="chip ' + (cls || "") + '">' + esc(text) + "</span>"; }
   function lineChips(l) {
     var c = l.done ? "good" : "";
     return chip(l.status, c) + l.flags.map(function (f) { return chip(f, FLAG_CLS[f]); }).join("");
   }
+  /* Card background = schedule (overdue / due soon / partly delivered), left border = quantity/QS issues. */
   function lineCls(l) {
-    if (S.hasFlag(l, "Überfällig") || S.hasFlag(l, "QS n.i.O.")) return "bad";
-    if (S.hasFlag(l, "Mengenabweichung") || S.hasFlag(l, "QS offen") || S.hasFlag(l, "Verspätet")) return "warn";
-    return l.done ? "good" : "";
+    var bg = S.hasFlag(l, "Überfällig") ? " late" : S.hasFlag(l, "Bald fällig") ? " soon" : (!l.done && l.received > 0) ? " part" : "";
+    if (S.hasFlag(l, "Überfällig") || S.hasFlag(l, "QS n.i.O.")) return "bad" + bg;
+    if (S.hasFlag(l, "Mengenabweichung") || S.hasFlag(l, "QS offen") || S.hasFlag(l, "Verspätet")) return "warn" + bg;
+    return (l.done ? "good" : "") + bg;
   }
   function stockHtml(snr) {
     if (!snr) return '<span class="muted">–</span>';
@@ -253,7 +256,7 @@
     var u = l.einheit;
     return '<div class="item ' + lineCls(l) + '"><div class="top"><span class="title">' + esc(l.bestellnr) + " / " + esc(l.pos) +
       " – " + esc(l.artikel || "?") + "</span>" + lineChips(l) + '</div><div class="grid">' +
-      g("S-Nr", esc(l.snr || "–")) + g("Bestellt", qty(l.ordered, u)) + g("Erhalten (i.O.)", qty(l.received, u) + " (" + qty(l.okQty) + ")") +
+      g("S-Nr", esc(l.snr || "–")) + (l.lbnr ? g("LB-Nr", esc(l.lbnr)) : "") + g("Bestellt", qty(l.ordered, u)) + g("Erhalten (i.O.)", qty(l.received, u) + " (" + qty(l.okQty) + ")") +
       g("Unterwegs", qty(l.transit, u)) + g("Offen", qty(l.open, u)) +
       g("Termin", esc(S.fmtDate(l.due) || "–") + (S.normDate(l.order.bestaetigt) ? " ✓" : "")) +
       g("Lager Hausen", stockHtml(l.snr)) +
@@ -418,7 +421,7 @@
     var sel = ls.filter(function (l) {
       if (filt.orders === "offen" && l.done) return false;
       if (filt.orders === "überfällig" && !S.hasFlag(l, "Überfällig")) return false;
-      if (q && (l.bestellnr + " " + l.artikel + " " + l.snr).toLowerCase().indexOf(q) < 0) return false;
+      if (q && (l.bestellnr + " " + l.artikel + " " + l.snr + " " + l.lbnr).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
     sel = filt.orders === "alle" ? sel.sort(function (a, b) {
@@ -436,7 +439,7 @@
       '<button class="btn pri" data-act="newOrder">+ Neue Bestellung</button></div>' +
       '<div class="bar"><div class="seg" style="flex:2">' + ["offen", "überfällig", "alle"].map(function (f) {
         return '<button type="button" data-act="ofilter" data-f="' + f + '"' + (filt.orders === f ? ' class="on"' : "") + ">" + esc(f[0].toUpperCase() + f.slice(1)) + "</button>";
-      }).join("") + '</div><form style="flex:3;min-width:200px" onsubmit="return false"><input id="oq" placeholder="Suchen: BestellNr, Artikel, S-Nr" value="' + esc(filt.q) + '"></form></div>' +
+      }).join("") + '</div><form style="flex:3;min-width:200px" onsubmit="return false"><input id="oq" placeholder="Suchen: BestellNr, Artikel, S-Nr, LB-Nr" value="' + esc(filt.q) + '"></form></div>' +
       '<div id="olist">' + orderList(ls) + "</div>";
   }
 
@@ -539,10 +542,22 @@
       '<button class="btn sm" type="button" data-act="rmLine">✕</button></div>';
   }
 
+  function lbField(v) {
+    if (!META.orders || !META.orders.colType.lbnr) return "";
+    return field("LB-Nr (Laufband, z. B. 1234/26, 1235/26)", '<input name="lbnr" value="' + esc(v) + '" placeholder="1234/26">');
+  }
+  function lbValue(d) {
+    if (d.lbnr === undefined) return undefined;
+    var p = S.parseLbNr(d.lbnr);
+    if (!p.ok) throw new Error("LB-Nr ungültig: " + p.bad.join(", ") + " – Format 1234/26, mehrere mit Komma trennen.");
+    return p.value;
+  }
+
   function modalNewOrder() {
     openModal(modalShell("Neue Bestellung (aus OrgaMax)", "newOrder",
       '<div class="row2">' + field("BestellNr (OrgaMax)", '<input name="bestellnr" required>') +
       field("Wunschtermin", '<input name="wunschtermin" type="date" required>') + "</div>" +
+      lbField("") +
       field("Positionen (S-Nr aus Lagerliste Hausen)", '<div class="olines" id="olines">' + orderLineRow() + "</div>" +
         '<button class="btn sm" type="button" data-act="addLine">+ Position</button>') +
       '<label class="chk f"><input type="checkbox" name="express"> Express</label>' +
@@ -558,6 +573,7 @@
       '<div class="row2">' + field("Menge", '<input name="menge" type="number" min="0" step="any" value="' + esc(o.menge) + '">') +
       field("Wunschtermin", '<input name="wunschtermin" type="date" value="' + esc(o.wunschtermin) + '">') + "</div>" +
       field("Bestätigter Termin (Berlin)", '<input name="bestaetigt" type="date" value="' + esc(o.bestaetigt) + '">') +
+      lbField(o.lbnr || "") +
       '<label class="chk f"><input type="checkbox" name="express"' + (S.yes(o.express) ? " checked" : "") + "> Express</label>" +
       '<label class="chk f"><input type="checkbox" name="abgeschlossen"' + (S.yes(o.abgeschlossen) ? " checked" : "") + "> Abgeschlossen (Rest wird nicht mehr geliefert)</label>" +
       field("Bemerkung", '<input name="bemerkung" value="' + esc(o.bemerkung) + '">')));
@@ -626,6 +642,7 @@
         pos.push({ snr: sn, artikel: ar, menge: S.num(mg), einheit: D.stock[sn] ? D.stock[sn].unit : "" });
       }
       if (!pos.length) throw new Error("Mindestens eine Position erfassen.");
+      var lb = lbValue(d);
       return readTable("orders").then(function (rows) {
         var same = rows.filter(function (r) { return r.bestellnr === d.bestellnr; });
         if (same.length && !confirm("BestellNr " + d.bestellnr + " existiert bereits. Positionen anhängen?")) throw new Error("Abgebrochen.");
@@ -634,15 +651,16 @@
         return addRows("orders", pos.map(function (p, i) {
           return { bestellnr: d.bestellnr, pos: max + i + 1, snr: p.snr, artikel: p.artikel, menge: p.menge, einheit: p.einheit,
                    wunschtermin: d.wunschtermin, bestaetigt: "", express: d.express, abgeschlossen: false,
-                   erstellt_von: userName(), erstellt_am: today(), bemerkung: d.bemerkung };
+                   erstellt_von: userName(), erstellt_am: today(), bemerkung: d.bemerkung, lbnr: lb };
         }));
       }).then(function () { return afterSave("Bestellung " + d.bestellnr + " gespeichert (" + pos.length + " Pos.)"); });
     },
     editOrder: function (f, d) {
       if (!S.hasNum(d.menge) || S.num(d.menge) <= 0) throw new Error("Menge > 0 erforderlich.");
-      return updateRow("orders", function (r) { return S.lineKey(r.bestellnr, r.pos) === d.key; },
-        { menge: S.num(d.menge), wunschtermin: d.wunschtermin, bestaetigt: d.bestaetigt, express: d.express,
-          abgeschlossen: d.abgeschlossen, bemerkung: d.bemerkung })
+      var patch = { menge: S.num(d.menge), wunschtermin: d.wunschtermin, bestaetigt: d.bestaetigt, express: d.express,
+                    abgeschlossen: d.abgeschlossen, bemerkung: d.bemerkung }, lb = lbValue(d);
+      if (lb !== undefined) patch.lbnr = lb;
+      return updateRow("orders", function (r) { return S.lineKey(r.bestellnr, r.pos) === d.key; }, patch)
         .then(function () { return afterSave("Gespeichert."); });
     },
     ship: function (f, d) {

@@ -9,7 +9,7 @@ aus derselben Datei/Blatt wie die Teileliste am Raspberry Pi (`Lagerübersicht P
 
 | Bereich | Wer | Inhalt |
 |---|---|---|
-| Bestellungen | Hausen | Bestellpositionen aus OrgaMax (BestellNr + Pos, S-Nr aus Lagerliste, Menge, Wunschtermin). Berlin trägt den bestätigten Termin ein. |
+| Bestellungen | Hausen | Bestellpositionen aus OrgaMax (BestellNr + Pos, S-Nr aus Lagerliste, Menge, Wunschtermin, LB-Nr). Berlin trägt den bestätigten Termin ein. Farben: gelb = teilgeliefert, hellrot = in `due_soon_days` (3) Tagen fällig, kräftig rot = überfällig. |
 | Versand | Berlin (auch Hausen → Berlin) | Jedes Paket inkl. Express wird gemeldet. Die App vergibt eine **LieferID** (`L-JJJJMMTT-NN`), die auf Lieferschein und Paket geschrieben wird. Ohne Bestellung nur mit Grund. |
 | Wareneingang | Hausen | Gezählte Menge, QS-Ergebnis (i.O./teilweise/n.i.O.), Menge i.O., **QS geprüft von**. Pakete ohne Versandmeldung können direkt erfasst werden. |
 | Probleme | beide | Problemkarten: Problem, Kategorie, Bezug, Verantwortlich, Maßnahme, Termin, Status. |
@@ -89,6 +89,7 @@ python -m http.server 8099 --bind 127.0.0.1
   Eingang/QS → Problem → Meeting, gegen simulierte Excel-Tabellen)
 
 ## Regeln für die Excel-Datei
+- Spalte **LB-Nr** (Laufbandnummern, Format `1234/26`, mehrere mit Komma) ist optional: fehlt sie in einer älteren Datei, läuft die App ohne das Feld. Nachrüsten: in `tblBestellungen` rechts neben „Bemerkung“ eine Spalte mit Überschrift `LB-Nr` anfügen, Zellformat Text.
 - Tabellen- und Spaltennamen nicht ändern; zusätzliche Spalten sind erlaubt.
 - Die App findet Datensätze über BestellNr+Pos, LieferID bzw. Nr und prüft vor jedem Ändern, dass der
   Datensatz eindeutig ist.

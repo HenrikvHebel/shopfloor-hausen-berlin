@@ -59,7 +59,15 @@ try {
   eq("A4/1 closed", by["A4|1"].status, "Abgeschlossen");
   eq("A4/1 not overdue", by["A4|1"].flags, []);
   eq("A5/1 confirmed date wins", by["A5|1"].due, "2026-11-08");
-  eq("A5/1 not overdue", by["A5|1"].flags, []);
+  eq("A5/1 due in 2 days -> Bald fällig", by["A5|1"].flags, ["Bald fällig"]);
+  eq("A1/2 due in 4 days -> no flag", S.deriveLines(orders, ships, T, 3)[1].flags, []);
+  eq("soonDays 4 -> A1/2 Bald fällig", S.deriveLines(orders, ships, T, 4)[1].flags, ["Bald fällig"]);
+  eq("due today -> Bald fällig", S.deriveLines([{ bestellnr: "X", pos: 1, menge: 1, wunschtermin: T }], [], T)[0].flags, ["Bald fällig"]);
+  eq("lbnr passed through", S.deriveLines([{ bestellnr: "X", pos: 1, menge: 1, lbnr: "1234/26" }], [], T)[0].lbnr, "1234/26");
+  eq("parseLbNr single", S.parseLbNr("1234/26"), { ok: true, value: "1234/26", bad: [] });
+  eq("parseLbNr list normalised", S.parseLbNr(" 1234/26,1235/26; 1236/26 ").value, "1234/26, 1235/26, 1236/26");
+  eq("parseLbNr empty ok", S.parseLbNr(""), { ok: true, value: "", bad: [] });
+  eq("parseLbNr bad", S.parseLbNr("1234/126, 123/26").bad, ["1234/126", "123/26"]);
 
   eq("sort overdue first", S.sortLines(ls)[0].key, "A1|1");
 

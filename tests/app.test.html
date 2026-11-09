@@ -132,7 +132,7 @@ function col(tname, key) {
 }
 function dataRows(tname) { return TABLES[tname].rows.filter(function (r) { return r.some(function (v) { return v !== ""; }); }); }
 function cell(tname, row, key) { return row[col(tname, key)]; }
-var SCHEMA;
+var SCHEMA, NOLB = /[?&]nolb=1/.test(location.search);
 
 /* ---------- boot: build tables from schema, inject index.html body, load scripts ---------- */
 function loadScript(src) { return new Promise(function (res, rej) { var s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.body.appendChild(s); }); }
@@ -141,8 +141,10 @@ realFetch("../schema.json").then(function (r) { return r.json(); }).then(functio
   SCHEMA = sc;
   ["orders", "shipments", "problems", "meetings"].forEach(function (k) {
     var t = sc[k];
-    TABLES[t.table] = { key: k, sheet: t.sheet, header: t.columns.map(function (c) { return c[1]; }),
-                        rows: [t.columns.map(function () { return ""; })] };   // template has one blank row
+    /* ?nolb=1 simulates an older workbook without the optional columns (LB-Nr) */
+    var cols = t.columns.filter(function (c) { return !(NOLB && c[3] === "optional"); });
+    TABLES[t.table] = { key: k, sheet: t.sheet, header: cols.map(function (c) { return c[1]; }),
+                        rows: [cols.map(function () { return ""; })] };   // template has one blank row
   });
   return realFetch("../index.html");
 }).then(function (r) { return r.text(); }).then(function (html) {
@@ -172,6 +174,8 @@ function scenario() {
     setv(f.querySelector("[name=ol_snr]"), "1001");
     check("artikel autofilled from stock", f.querySelector("[name=ol_artikel]").value === "Rahmenrohr Test", f.querySelector("[name=ol_artikel]").value);
     setv(f.querySelector("[name=ol_menge]"), "10");
+    if (NOLB) check("no LB-Nr field without column", !f.querySelector("[name=lbnr]"));
+    else setv(f.querySelector("[name=lbnr]"), "1234/26,1235/26");
     click(q('[data-act="addLine"]'));
     var sn = f.querySelectorAll("[name=ol_snr]"), mg = f.querySelectorAll("[name=ol_menge]");
     setv(sn[1], "1002"); setv(mg[1], "4");
@@ -184,6 +188,15 @@ function scenario() {
     check("order einheit from stock", cell("tblBestellungen", rows[0], "einheit") === "Stk");
     check("order express N", cell("tblBestellungen", rows[0], "express") === "N");
     check("order list shows overdue", /Überfällig/.test($("view").textContent));
+    check("overdue card bright red", qa("#olist .item.late").length === 2, qa("#olist .item.late").length);
+    if (!NOLB) {
+      check("LB-Nr stored normalised", cell("tblBestellungen", rows[0], "lbnr") === "1234/26, 1235/26" && cell("tblBestellungen", rows[1], "lbnr") === "1234/26, 1235/26",
+        cell("tblBestellungen", rows[0], "lbnr"));
+      check("LB-Nr shown on card", /LB-Nr1234\/26, 1235\/26/.test($("view").textContent));
+      setv($("oq"), "1235/26");
+      check("search finds LB-Nr", qa("#olist .item").length === 2, qa("#olist .item").length);
+      setv($("oq"), "");
+    }
     check("stock shown with min", /12 Stk \(Min 20\)/.test($("view").textContent), $("view").textContent.slice(0, 400));
 
     /* 1b. duplicate BestellNr appends positions */
@@ -193,7 +206,18 @@ function scenario() {
     setv(f.querySelector("[name=wunschtermin]"), SFL.addDays(T, 10));
     setv(f.querySelector("[name=ol_artikel]"), "Sonderteil Test");
     setv(f.querySelector("[name=ol_menge]"), "1");
-    submit(f);
+    if (!NOLB) {
+      setv(f.querySelector("[name=lbnr]"), "1234/126");
+      submit(f);
+    }
+    return sleep(150);
+  }).then(function () {
+    if (!NOLB) {
+      check("invalid LB-Nr rejected", /LB-Nr ungültig: 1234\/126/.test(toastText()) && dataRows("tblBestellungen").length === 2, toastText());
+      var f = q('#modal form');
+      setv(f.querySelector("[name=lbnr]"), "");
+    }
+    submit(q('#modal form'));
     return idle();
   }).then(function () {
     var rows = dataRows("tblBestellungen");
@@ -325,6 +349,7 @@ function scenario() {
     click(q('[data-act="mstep"][data-i="1"]'));
     txt = $("view").textContent;
     check("step 2 shows open 4711/1 overdue", /4711 \/ 1/.test(txt) && /Überfällig/.test(txt));
+    check("step 2: overdue wins over partly delivered (bright red)", qa("#view .item.late").some(function (e) { return /4711 \/ 1 –/.test(e.textContent) && !e.classList.contains("part"); }));
     check("step 2 hides delivered 4711/2", !/4711 \/ 2 –/.test(txt));
     click(q('[data-act="mstep"][data-i="2"]'));
     check("step 3 shows in-transit lid2", new RegExp(lid2).test($("view").textContent));

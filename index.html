@@ -45,6 +45,11 @@
   .item.bad { border-left-color:var(--zerob); }
   .item.warn { border-left-color:var(--lowb); }
   .item.good { border-left-color:var(--ok); }
+  .item.part { background:#fff3c4; }
+  .item.soon { background:#fde2e1; }
+  .item.late { background:#ff6b63; }
+  .item.late .grid b, .item.late .muted { color:#3b0a08; }
+  .item.late .stock.zero, .item.late .stock.low { background:#fff; padding:0 4px; border-radius:4px; }
   .item .top { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
   .item .title { font-weight:600; font-size:16px; }
   .item .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:4px 12px; margin-top:6px; font-size:14px; }
